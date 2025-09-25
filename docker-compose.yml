@@ -1,0 +1,127 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: ./docker/php/Dockerfile
+      args:
+        USER_ID: '${USER_ID:-1000}'
+        GROUP_ID: '${GROUP_ID:-1000}'
+    container_name: flat-app
+    restart: always
+    working_dir: /var/www/html
+    volumes:
+      - ./src:/var/www/html
+      - ./docker/php/config/local.ini:/usr/local/etc/php/conf.d/local.ini
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - flat_network
+    ports:
+      - "9003:9003"
+      - "5173:5173"
+
+  nginx:
+    image: nginx:1.29-alpine
+    container_name: flat-nginx
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./src:/var/www/html
+      - ./docker/nginx:/etc/nginx/conf.d
+    networks:
+      - flat_network
+    depends_on:
+      - app
+
+  db:
+    container_name: flat-db
+    image: mysql:8.0
+    restart: always
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./docker/mysql:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: flat_db
+      MYSQL_USER: flat_user
+      MYSQL_PASSWORD: flat_123
+      MYSQL_ROOT_PASSWORD: root123
+    networks:
+      - flat_network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+    
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: flat-phpmyadmin
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      PMA_HOSTS: db
+      PMA_PORTS: 3306
+      PMA_USER: root
+      PMA_PASSWORD: root123
+    depends_on:
+      - db
+    networks:
+      - flat_network
+
+  rabbitmq:
+    container_name: flat-rabbitmq
+    image: rabbitmq:3.13-management-alpine
+    restart: always
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    environment:
+      RABBITMQ_DEFAULT_USER: flat_user
+      RABBITMQ_DEFAULT_PASS: flat_123
+    volumes:
+      - ./docker/rabbitmq/data/:/var/lib/rabbitmq/
+      - ./docker/rabbitmq/log/:/var/log/rabbitmq
+    networks:
+      - flat_network
+
+  redis:
+    container_name: flat-redis
+    image: redis:8.0-alpine
+    restart: unless-stopped
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - ./docker/redis_data:/data
+      - ./docker/redis.conf:/usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "localhost", "-a", "${REDIS_PASSWORD}", "--raw", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "6379:6379"
+    networks:
+      - flat_network
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  mailhog:
+    image: mailhog/mailhog
+    container_name: "mailhog"
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - flat_network
+
+networks:
+  flat_network:
+    driver: bridge
