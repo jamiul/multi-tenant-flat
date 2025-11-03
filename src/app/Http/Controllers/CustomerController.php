@@ -15,8 +15,8 @@ class CustomerController extends Controller
     {
         $perPage = $request->get('per_page', 15);
         $customers = Customer::latest()->paginate($perPage);
-        
-        return response()->json($customers);
+
+        return view('customers.index', compact('customers'));
     }
 
     /**
@@ -72,7 +72,7 @@ class CustomerController extends Controller
     public function show(string $id)
     {
         $customer = Customer::findOrFail($id);
-        
+
         return response()->json([
             'success' => true,
             'data' => $customer
@@ -85,7 +85,7 @@ class CustomerController extends Controller
     public function edit(string $id)
     {
         $customer = Customer::findOrFail($id);
-        
+
         // Return view for editing customer
         return view('customers.edit', compact('customer'));
     }

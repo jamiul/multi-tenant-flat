@@ -4,9 +4,10 @@ namespace Database\Seeders;
 
 use App\Models\Customer;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\File;
-use League\Csv\Writer;
+// We no longer need File, DB, or CSV Writer
+// use Illuminate\Support\Facades\DB;
+// use Illuminate\Support\Facades\File;
+// use League\Csv\Writer;
 
 class CustomerSeeder extends Seeder
 {
@@ -16,72 +17,42 @@ class CustomerSeeder extends Seeder
     public function run(): void
     {
         $totalRecords = 1000000;
-        $chunkSize = 50000;
-        $csvPath = storage_path('app/customers.csv');
+        // 5,000 is a good chunk size for DB inserts as well
+        $chunkSize = 5000;
 
-        // Create a CSV writer instance
-        $csv = Writer::createFromPath($csvPath, 'w+');
-        $csv->insertOne([
-            'first_name', 'last_name', 'email', 'phone', 'address', 'city', 'state',
-            'zip_code', 'country', 'date_of_birth', 'gender', 'status',
-            'customer_type', 'registration_date', 'created_at', 'updated_at'
-        ]);
+        // All CSV and File logic has been removed
+        $this->command->info("Inserting $totalRecords customer records directly into the database...");
 
+        // Progress bar setup
         $this->command->getOutput()->progressStart($totalRecords);
 
-        for ($i = 0; $i < $totalRecords; $i += $chunkSize) {
-            $customers = Customer::factory()->count($chunkSize)->make();
-            $records = [];
-            foreach ($customers as $customer) {
-                $records[] = [
-                    $customer->first_name,
-                    $customer->last_name,
-                    $customer->email,
-                    $customer->phone,
-                    $customer->address,
-                    $customer->city,
-                    $customer->state,
-                    $customer->zip_code,
-                    $customer->country,
-                    $customer->date_of_birth,
-                    $customer->gender,
-                    $customer->status,
-                    $customer->customer_type,
-                    $customer->registration_date,
-                    now()->toDateTimeString(),
-                    now()->toDateTimeString(),
-                ];
+        // Calculate the number of chunks
+        $chunks = ceil($totalRecords / $chunkSize);
+
+        for ($i = 0; $i < $chunks; $i++) {
+            // Determine how many records to generate in this chunk
+            // This handles the final chunk, which might be smaller
+            $recordsToGenerate = min($chunkSize, $totalRecords - ($i * $chunkSize));
+
+            if ($recordsToGenerate <= 0) {
+                break; // Should not happen, but good to have
             }
-            $csv->insertAll($records);
-            $this->command->getOutput()->progressAdvance($chunkSize);
+
+            // This one line replaces the `make()`, the `foreach` loop,
+            // the `$records` array, and the `csv->insertAll()`.
+            // The `create()` method generates and inserts records into the DB.
+            Customer::factory()->count($recordsToGenerate)->create();
+
+            // Write all records for this chunk to the CSV
+            $this->command->getOutput()->progressAdvance($recordsToGenerate);
         }
 
         $this->command->getOutput()->progressFinish();
-        $this->command->info('CSV file generated successfully.');
+        $this->command->info('Customer records inserted successfully.');
 
-        // Use LOAD DATA INFILE for fast import
-        $this->importCsvToDb($csvPath);
-
-        // Clean up the CSV file
-        File::delete($csvPath);
-        $this->command->info('CSV file deleted.');
+        // All CSV import and file deletion logic has been removed
     }
 
-    /**
-     * Import CSV to database using LOAD DATA INFILE.
-     */
-    protected function importCsvToDb(string $path): void
-    {
-        $this->command->info('Importing CSV to database...');
-        DB::connection()->getpdo()->exec("
-            LOAD DATA LOCAL INFILE '" . $path . "'
-            INTO TABLE customers
-            FIELDS TERMINATED BY ','
-            ENCLOSED BY '\"'
-            LINES TERMINATED BY '\\n'
-            IGNORE 1 ROWS
-            (first_name, last_name, email, phone, address, city, state, zip_code, country, date_of_birth, gender, status, customer_type, registration_date, created_at, updated_at)
-        ");
-        $this->command->info('CSV imported successfully.');
-    }
+    // The importCsvToDb method is no longer needed
 }
+
