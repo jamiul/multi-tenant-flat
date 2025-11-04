@@ -244,7 +244,7 @@ return [
         | Drivers: memory|illuminate|batch
         |
         */
-        'driver'      => 'memory',
+        'driver'      => 'illuminate',
 
         /*
         |--------------------------------------------------------------------------
@@ -273,7 +273,7 @@ return [
         |
         */
         'illuminate'  => [
-            'store' => null,
+            'store' => 'redis',
         ],
 
         /*

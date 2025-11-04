@@ -24,6 +24,10 @@ Route::get('customers/export/status/{batchId}', [CustomerController::class, 'exp
     ->middleware(['auth', 'verified'])
     ->name('customers.export.status');
 
+Route::get('customers/export/download', [CustomerController::class, 'downloadExport'])
+    ->middleware(['auth', 'verified'])
+    ->name('customers.export.download');
+
 Route::middleware(['auth'])->group(function () {
     Route::get('settings/profile', [Settings\ProfileController::class, 'edit'])->name('settings.profile.edit');
     Route::put('settings/profile', [Settings\ProfileController::class, 'update'])->name('settings.profile.update');

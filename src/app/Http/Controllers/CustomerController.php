@@ -63,6 +63,19 @@ class CustomerController extends Controller
         ]);
     }
 
+    public function downloadExport()
+    {
+        $filePath = storage_path('app/public/customers.xlsx');
+        // dd($filePath);
+
+        if (file_exists($filePath)) {
+            // dd('file exists');
+            return response()->download($filePath, 'customers.xlsx')->deleteFileAfterSend(true);
+        }
+
+        return redirect()->route('customers.index')->with('error', 'File not found.');
+    }
+
     /**
      * Show the form for creating a new resource.
      */

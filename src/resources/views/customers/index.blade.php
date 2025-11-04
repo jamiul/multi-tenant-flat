@@ -48,7 +48,7 @@
                                     statusDiv.innerHTML = 'Export failed. Please try again.';
                                 } else {
                                     statusDiv.classList.add('bg-green-100', 'text-green-700', 'dark:bg-green-900', 'dark:text-green-200');
-                                    statusDiv.innerHTML = `Export complete! <a href="/storage/customers.xlsx" class="font-bold underline">Download</a>`;
+                                    statusDiv.innerHTML = `Export complete! <a href="{{ route('customers.export.download') }}" class="font-bold underline">Download</a>`;
                                 }
                             }
                         });
@@ -73,6 +73,7 @@
             </svg>
             {{ __('Export to Excel') }}
         </a>
+        <a href="{{ route('customers.export.download') }}" class="font-bold underline">Download</a>
     </div>
 
     <!-- Customers Table -->
