@@ -15,8 +15,8 @@ class CustomerSeeder extends Seeder
      */
     public function run(): void
     {
-        $totalRecords = 1000000;
-        $chunkSize = 50000;
+        $totalRecords = 10000;
+        $chunkSize = 1000;
         $csvPath = storage_path('app/customers.csv');
 
         // Create a CSV writer instance
@@ -59,7 +59,7 @@ class CustomerSeeder extends Seeder
         $this->command->getOutput()->progressFinish();
         $this->command->info('CSV file generated successfully.');
 
-        // Use LOAD DATA INFILE for fast import
+        // Use chunked insert instead of LOAD DATA INFILE
         $this->importCsvToDb($csvPath);
 
         // Clean up the CSV file
@@ -68,20 +68,57 @@ class CustomerSeeder extends Seeder
     }
 
     /**
-     * Import CSV to database using LOAD DATA INFILE.
+     * Import CSV to database using chunked inserts.
      */
     protected function importCsvToDb(string $path): void
     {
         $this->command->info('Importing CSV to database...');
-        DB::connection()->getpdo()->exec("
-            LOAD DATA LOCAL INFILE '" . $path . "'
-            INTO TABLE customers
-            FIELDS TERMINATED BY ','
-            ENCLOSED BY '\"'
-            LINES TERMINATED BY '\\n'
-            IGNORE 1 ROWS
-            (first_name, last_name, email, phone, address, city, state, zip_code, country, date_of_birth, gender, status, customer_type, registration_date, created_at, updated_at)
-        ");
+        
+        $file = fopen($path, 'r');
+        
+        // Skip header row
+        fgetcsv($file);
+        
+        $chunkSize = 1000;
+        $records = [];
+        
+        $this->command->getOutput()->progressStart(10000);
+        
+        while (($data = fgetcsv($file)) !== false) {
+            $records[] = [
+                'first_name' => $data[0],
+                'last_name' => $data[1],
+                'email' => $data[2],
+                'phone' => $data[3],
+                'address' => $data[4],
+                'city' => $data[5],
+                'state' => $data[6],
+                'zip_code' => $data[7],
+                'country' => $data[8],
+                'date_of_birth' => $data[9],
+                'gender' => $data[10],
+                'status' => $data[11],
+                'customer_type' => $data[12],
+                'registration_date' => $data[13],
+                'created_at' => $data[14],
+                'updated_at' => $data[15],
+            ];
+            
+            if (count($records) >= $chunkSize) {
+                DB::table('customers')->insert($records);
+                $records = [];
+                $this->command->getOutput()->progressAdvance($chunkSize);
+            }
+        }
+        
+        // Insert remaining records
+        if (!empty($records)) {
+            DB::table('customers')->insert($records);
+            $this->command->getOutput()->progressAdvance(count($records));
+        }
+        
+        fclose($file);
+        $this->command->getOutput()->progressFinish();
         $this->command->info('CSV imported successfully.');
     }
 }

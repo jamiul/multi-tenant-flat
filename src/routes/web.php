@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Settings;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\CustomerController;
 
 Route::get('/', function () {
     return view('welcome');
@@ -10,6 +11,18 @@ Route::get('/', function () {
 Route::view('dashboard', 'dashboard')
     ->middleware(['auth', 'verified'])
     ->name('dashboard');
+
+Route::get('customers', [CustomerController::class, 'index'])
+    ->middleware(['auth', 'verified'])
+    ->name('customers.index');
+
+Route::get('customers/export', [CustomerController::class, 'export'])
+    ->middleware(['auth', 'verified'])
+    ->name('customers.export');
+
+Route::get('customers/export/status/{batchId}', [CustomerController::class, 'exportStatus'])
+    ->middleware(['auth', 'verified'])
+    ->name('customers.export.status');
 
 Route::middleware(['auth'])->group(function () {
     Route::get('settings/profile', [Settings\ProfileController::class, 'edit'])->name('settings.profile.edit');

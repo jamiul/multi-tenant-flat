@@ -2,9 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\CustomersExport;
 use App\Models\Customer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Maatwebsite\Excel\Facades\Excel;
+use Illuminate\Support\Facades\Bus;
+use Throwable;
 
 class CustomerController extends Controller
 {
@@ -14,9 +18,49 @@ class CustomerController extends Controller
     public function index(Request $request)
     {
         $perPage = $request->get('per_page', 15);
-        $customers = Customer::latest()->paginate($perPage);
-        
-        return response()->json($customers);
+        $query = Customer::latest();
+
+        if ($request->has('search')) {
+            $searchTerm = $request->get('search');
+            $query->where(function ($q) use ($searchTerm) {
+                $q->where('first_name', 'like', "%{$searchTerm}%")
+                    ->orWhere('last_name', 'like', "%{$searchTerm}%")
+                    ->orWhere('email', 'like', "%{$searchTerm}%");
+            });
+        }
+
+        $customers = $query->paginate($perPage);
+
+        return view('customers.index', compact('customers'));
+    }
+
+    public function export()
+    {
+        $export = new CustomersExport();
+        Excel::queue($export, 'customers.xlsx', 'public');
+
+        $batch = Bus::batch([
+            $export,
+        ])->then(function () {
+            // All jobs completed successfully...
+        })->catch(function ($batch, Throwable $e) {
+            // First batch job failure detected...
+        })->finally(function () {
+            // The batch has finished executing...
+        })->dispatch();
+
+        return redirect()->route('customers.index')->with('export_batch_id', $batch->id);
+    }
+
+    public function exportStatus($batchId)
+    {
+        $batch = Bus::findBatch($batchId);
+
+        return response()->json([
+            'finished' => $batch->finished(),
+            'failed' => $batch->hasFailures(),
+            'progress' => $batch->progress(),
+        ]);
     }
 
     /**
