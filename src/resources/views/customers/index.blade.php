@@ -23,6 +23,12 @@
         </div>
     @endif
 
+    @if (session('error'))
+        <div class="mb-4 rounded-lg bg-red-100 px-6 py-5 text-base text-red-700 dark:bg-red-900 dark:text-red-200" role="alert">
+            {{ session('error') }}
+        </div>
+    @endif
+
     @if (session('export_batch_id'))
         <div id="export-status" class="mb-4 rounded-lg bg-blue-100 px-6 py-5 text-base text-blue-700 dark:bg-blue-900 dark:text-blue-200" role="alert">
             Exporting... <span id="export-progress">0</span>%
@@ -73,7 +79,6 @@
             </svg>
             {{ __('Export to Excel') }}
         </a>
-        <a href="{{ route('customers.export.download') }}" class="font-bold underline">Download</a>
     </div>
 
     <!-- Customers Table -->

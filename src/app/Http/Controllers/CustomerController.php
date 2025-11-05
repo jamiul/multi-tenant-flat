@@ -37,17 +37,11 @@ class CustomerController extends Controller
     public function export()
     {
         $export = new CustomersExport();
-        Excel::queue($export, 'customers.xlsx', 'public');
-
         $batch = Bus::batch([
-            $export,
-        ])->then(function () {
-            // All jobs completed successfully...
-        })->catch(function ($batch, Throwable $e) {
-            // First batch job failure detected...
-        })->finally(function () {
-            // The batch has finished executing...
-        })->dispatch();
+            function () use ($export) {
+                Excel::queue($export, 'customers.xlsx', 'public');
+            },
+        ])->dispatch();
 
         return redirect()->route('customers.index')->with('export_batch_id', $batch->id);
     }

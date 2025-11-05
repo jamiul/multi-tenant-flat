@@ -15,56 +15,56 @@ class CustomerSeeder extends Seeder
      */
     public function run(): void
     {
-        $totalRecords = 10000;
-        $chunkSize = 1000;
+        // $totalRecords = 1000;
+        // $chunkSize = 100;
         $csvPath = storage_path('app/customers.csv');
 
-        // Create a CSV writer instance
-        $csv = Writer::createFromPath($csvPath, 'w+');
-        $csv->insertOne([
-            'first_name', 'last_name', 'email', 'phone', 'address', 'city', 'state',
-            'zip_code', 'country', 'date_of_birth', 'gender', 'status',
-            'customer_type', 'registration_date', 'created_at', 'updated_at'
-        ]);
+        // // Create a CSV writer instance
+        // $csv = Writer::createFromPath($csvPath, 'w+');
+        // $csv->insertOne([
+        //     'first_name', 'last_name', 'email', 'phone', 'address', 'city', 'state',
+        //     'zip_code', 'country', 'date_of_birth', 'gender', 'status',
+        //     'customer_type', 'registration_date', 'created_at', 'updated_at'
+        // ]);
 
-        $this->command->getOutput()->progressStart($totalRecords);
+        // $this->command->getOutput()->progressStart($totalRecords);
 
-        for ($i = 0; $i < $totalRecords; $i += $chunkSize) {
-            $customers = Customer::factory()->count($chunkSize)->make();
-            $records = [];
-            foreach ($customers as $customer) {
-                $records[] = [
-                    $customer->first_name,
-                    $customer->last_name,
-                    $customer->email,
-                    $customer->phone,
-                    $customer->address,
-                    $customer->city,
-                    $customer->state,
-                    $customer->zip_code,
-                    $customer->country,
-                    $customer->date_of_birth,
-                    $customer->gender,
-                    $customer->status,
-                    $customer->customer_type,
-                    $customer->registration_date,
-                    now()->toDateTimeString(),
-                    now()->toDateTimeString(),
-                ];
-            }
-            $csv->insertAll($records);
-            $this->command->getOutput()->progressAdvance($chunkSize);
-        }
+        // for ($i = 0; $i < $totalRecords; $i += $chunkSize) {
+        //     $customers = Customer::factory()->count($chunkSize)->make();
+        //     $records = [];
+        //     foreach ($customers as $customer) {
+        //         $records[] = [
+        //             $customer->first_name,
+        //             $customer->last_name,
+        //             $customer->email,
+        //             $customer->phone,
+        //             $customer->address,
+        //             $customer->city,
+        //             $customer->state,
+        //             $customer->zip_code,
+        //             $customer->country,
+        //             $customer->date_of_birth,
+        //             $customer->gender,
+        //             $customer->status,
+        //             $customer->customer_type,
+        //             $customer->registration_date,
+        //             now()->toDateTimeString(),
+        //             now()->toDateTimeString(),
+        //         ];
+        //     }
+        //     $csv->insertAll($records);
+        //     $this->command->getOutput()->progressAdvance($chunkSize);
+        // }
 
-        $this->command->getOutput()->progressFinish();
-        $this->command->info('CSV file generated successfully.');
+        // $this->command->getOutput()->progressFinish();
+        // $this->command->info('CSV file generated successfully.');
 
         // Use chunked insert instead of LOAD DATA INFILE
         $this->importCsvToDb($csvPath);
 
         // Clean up the CSV file
-        File::delete($csvPath);
-        $this->command->info('CSV file deleted.');
+        // File::delete($csvPath);
+        // $this->command->info('CSV file deleted.');
     }
 
     /**

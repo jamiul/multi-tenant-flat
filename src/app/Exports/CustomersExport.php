@@ -3,70 +3,21 @@
 namespace App\Exports;
 
 use App\Models\Customer;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Maatwebsite\Excel\Concerns\FromQuery;
-use Illuminate\Bus\Batchable;
-use Illuminate\Queue\InteractsWithQueue;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
-use Maatwebsite\Excel\Concerns\WithChunkReading;
-use Maatwebsite\Excel\Concerns\WithColumnFormatting;
-use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 
-class CustomersExport implements
-    FromQuery,
-    WithHeadings,
-    WithMapping,
-    WithChunkReading,
-    ShouldQueue,
-    WithColumnFormatting
+class CustomersExport implements FromQuery, WithHeadings, WithMapping
 {
-    use InteractsWithQueue, Batchable;
-
-    /**
-     * Execute the job.
-     *
-     * @return void
-     */
-    public function handle()
-    {
-        // This method is required for the job to be handled by the queue worker.
-        // The export logic is handled by the Maatwebsite\Excel package through the implemented concerns.
-    }
-
-    /**
-     * Build the base query for the export.
-     */
     public function query()
     {
-        return Customer::query()->select([
-            'id',
-            'first_name',
-            'last_name',
-            'email',
-            'phone',
-            'address',
-            'city',
-            'state',
-            'zip_code',
-            'country',
-            'date_of_birth',
-            'gender',
-            'status',
-            'customer_type',
-            'registration_date',
-            'created_at',
-            'updated_at',
-        ])->orderBy('id');
+        return Customer::query();
     }
 
-    /**
-     * Define the column headings.
-     */
     public function headings(): array
     {
         return [
-            '#',
+            'ID',
             'First Name',
             'Last Name',
             'Email',
@@ -81,15 +32,9 @@ class CustomersExport implements
             'Status',
             'Customer Type',
             'Registration Date',
-            'Created At',
-            'Updated At',
         ];
     }
 
-    /**
-     * Map each Customer model to a row array.
-     * This keeps memory usage low and lets you transform values easily.
-     */
     public function map($customer): array
     {
         return [
@@ -103,35 +48,11 @@ class CustomersExport implements
             $customer->state,
             $customer->zip_code,
             $customer->country,
-            optional($customer->date_of_birth)?->format('Y-m-d'),
-            ucfirst($customer->gender),
-            ucfirst($customer->status),
-            ucfirst($customer->customer_type),
-            optional($customer->registration_date)?->format('Y-m-d'),
-            optional($customer->created_at)?->format('Y-m-d H:i:s'),
-            optional($customer->updated_at)?->format('Y-m-d H:i:s'),
-        ];
-    }
-
-    /**
-     * Control how many rows are fetched per job.
-     * Tune this based on your memory and DB performance.
-     */
-    public function chunkSize(): int
-    {
-        return 1000; // try 1000–2000
-    }
-
-    /**
-     * Optionally format date/time columns in Excel.
-     */
-    public function columnFormats(): array
-    {
-        return [
-            'K' => NumberFormat::FORMAT_DATE_YYYYMMDD, // date_of_birth
-            'O' => NumberFormat::FORMAT_DATE_YYYYMMDD, // registration_date
-            'P' => NumberFormat::FORMAT_DATE_DATETIME, // created_at
-            'Q' => NumberFormat::FORMAT_DATE_DATETIME, // updated_at
+            $customer->date_of_birth,
+            $customer->gender,
+            $customer->status,
+            $customer->customer_type,
+            $customer->registration_date,
         ];
     }
 }
