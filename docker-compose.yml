@@ -4,8 +4,8 @@ services:
       context: .
       dockerfile: ./docker/php/Dockerfile
       args:
-        USER_ID: '${USER_ID:-1000}'
-        GROUP_ID: '${GROUP_ID:-1000}'
+        USER_ID: 1000
+        GROUP_ID: 1000
     container_name: flat-app
     restart: always
     working_dir: /var/www/html
@@ -54,6 +54,7 @@ services:
       interval: 5s
       timeout: 10s
       retries: 5
+    command: ["mysqld","--local-infile=1"]
     
   phpmyadmin:
     image: phpmyadmin/phpmyadmin

@@ -17,6 +17,73 @@
         </div>
     </div>
 
+<<<<<<< HEAD
+=======
+    @if (session('success'))
+        <div class="mb-4 rounded-lg bg-green-100 px-6 py-5 text-base text-green-700 dark:bg-green-900 dark:text-green-200" role="alert">
+            {{ session('success') }}
+        </div>
+    @endif
+
+    @if (session('error'))
+        <div class="mb-4 rounded-lg bg-red-100 px-6 py-5 text-base text-red-700 dark:bg-red-900 dark:text-red-200" role="alert">
+            {{ session('error') }}
+        </div>
+    @endif
+
+    @if (session('export_batch_id'))
+        <div id="export-status" class="mb-4 rounded-lg bg-blue-100 px-6 py-5 text-base text-blue-700 dark:bg-blue-900 dark:text-blue-200" role="alert">
+            Exporting... <span id="export-progress">0</span>%
+        </div>
+
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                const batchId = '{{ session('export_batch_id') }}';
+                const statusDiv = document.getElementById('export-status');
+                const progressSpan = document.getElementById('export-progress');
+
+                const interval = setInterval(function () {
+                    fetch(`/customers/export/status/${batchId}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            progressSpan.textContent = data.progress;
+
+                            if (data.finished) {
+                                clearInterval(interval);
+                                statusDiv.classList.remove('bg-blue-100', 'text-blue-700', 'dark:bg-blue-900', 'dark:text-blue-200');
+                                if (data.failed) {
+                                    statusDiv.classList.add('bg-red-100', 'text-red-700', 'dark:bg-red-900', 'dark:text-red-200');
+                                    statusDiv.innerHTML = 'Export failed. Please try again.';
+                                } else {
+                                    statusDiv.classList.add('bg-green-100', 'text-green-700', 'dark:bg-green-900', 'dark:text-green-200');
+                                    statusDiv.innerHTML = `Export complete! <a href="{{ route('customers.export.download') }}" class="font-bold underline">Download</a>`;
+                                }
+                            }
+                        });
+                }, 2000);
+            });
+        </script>
+    @endif
+
+    <!-- Search and Export -->
+    <div class="mb-4 flex items-center justify-between">
+        <form action="{{ route('customers.index') }}" method="GET" class="w-full max-w-md">
+            <div class="flex items-center border-b-2 border-blue-500 py-2">
+                <input class="appearance-none bg-transparent border-none w-full text-gray-700 mr-3 py-1 px-2 leading-tight focus:outline-none" type="text" name="search" placeholder="Search customers..." value="{{ request('search') }}">
+                <button class="flex-shrink-0 bg-blue-500 hover:bg-blue-700 border-blue-500 hover:border-blue-700 text-sm border-4 text-white py-1 px-2 rounded" type="submit">
+                    Search
+                </button>
+            </div>
+        </form>
+        <a href="{{ route('customers.export') }}" class="bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg transition duration-150 ease-in-out">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            {{ __('Export to Excel') }}
+        </a>
+    </div>
+
+>>>>>>> d59c4406cc85b0a047a59e18285b15e6b612205d
     <!-- Customers Table -->
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
         <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
