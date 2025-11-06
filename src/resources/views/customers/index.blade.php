@@ -73,12 +73,28 @@
                 </button>
             </div>
         </form>
-        <a href="{{ route('customers.export') }}" class="bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg transition duration-150 ease-in-out">
+        <a href="{{ route('customers.export') }}" id="export-button" class="bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg transition duration-150 ease-in-out">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 inline mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            {{ __('Export to Excel') }}
+            <span id="export-button-text">{{ __('Export to Excel') }}</span>
         </a>
+        <script>
+            document.addEventListener('DOMContentLoaded', function () {
+                const exportButton = document.getElementById('export-button');
+                const exportButtonText = document.getElementById('export-button-text');
+
+                exportButton.addEventListener('click', function (e) {
+                    exportButton.classList.add('opacity-50', 'cursor-not-allowed');
+                    exportButtonText.textContent = 'Exporting...';
+
+                    setTimeout(() => {
+                        exportButton.classList.remove('opacity-50', 'cursor-not-allowed');
+                        exportButtonText.textContent = 'Export to Excel';
+                    }, 5000);
+                });
+            });
+        </script>
     </div>
 
     <!-- Customers Table -->

@@ -10,10 +10,10 @@
                                 :active="request()->routeIs('dashboard*')">Dashboard</x-layouts.sidebar-link>
 
                             <!-- Example two level -->
-                            <x-layouts.sidebar-two-level-link-parent title="Example two level" icon="fas-house"
-                                :active="request()->routeIs('two-level*')">
-                                <x-layouts.sidebar-two-level-link href="#" icon='fas-house'
-                                    :active="request()->routeIs('two-level*')">Child</x-layouts.sidebar-two-level-link>
+                            <x-layouts.sidebar-two-level-link-parent title="Customer" icon="fas-house"
+                                :active="request()->routeIs('customers*')">
+                                <x-layouts.sidebar-two-level-link href="{{ route('customers.index')}}" icon='fas-house'
+                                    :active="request()->routeIs('customers.index*')">List</x-layouts.sidebar-two-level-link>
                             </x-layouts.sidebar-two-level-link-parent>
 
                             <!-- Example three level -->

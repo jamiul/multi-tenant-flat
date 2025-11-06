@@ -34,17 +34,21 @@ class CustomerController extends Controller
         return view('customers.index', compact('customers'));
     }
 
-    public function export()
-    {
-        $export = new CustomersExport();
-        $batch = Bus::batch([
-            function () use ($export) {
-                Excel::queue($export, 'customers.xlsx', 'public');
-            },
-        ])->dispatch();
+ public function export()
+{
+    $user = auth()->user();
+    $fileName = "exports/customers_{$user->id}_" . now()->timestamp . '.xlsx';
 
-        return redirect()->route('customers.index')->with('export_batch_id', $batch->id);
-    }
+    Excel::queue(
+        new \App\Exports\CustomersExport($fileName), // 1. Export object
+        $fileName,                                    // 2. File path (required)
+        'public'                                      // 3. Disk (optional, but recommended)
+    )->chain([
+        new \App\Jobs\NotifyUserOfCompletedExport($user, $fileName),
+    ]);
+
+    return back()->with('success', 'Export has been started and you will be notified upon completion.');
+}
 
     public function exportStatus($batchId)
     {
@@ -52,22 +56,25 @@ class CustomerController extends Controller
 
         return response()->json([
             'finished' => $batch->finished(),
-            'failed' => $batch->hasFailures(),
+            'failed'   => $batch->hasFailures(),
             'progress' => $batch->progress(),
         ]);
     }
 
     public function downloadExport()
     {
-        $filePath = storage_path('app/public/customers.xlsx');
-        // dd($filePath);
+        $fileName = session('export_file_name'); // Fixed: removed garbage
 
-        if (file_exists($filePath)) {
-            // dd('file exists');
-            return response()->download($filePath, 'customers.xlsx')->deleteFileAfterSend(true);
+        if (!$fileName || ! \Illuminate\Support\Facades\Storage::disk('public')->exists($fileName)) {
+            return redirect()
+                ->route('customers.index')
+                ->with('error', 'File not found or export not finished.');
         }
 
-        return redirect()->route('customers.index')->with('error', 'File not found.');
+        // Optional: clean session
+        session()->forget(['export_file_name']);
+
+        return \Illuminate\Support\Facades\Storage::disk('public')->download($fileName);
     }
 
     /**
@@ -123,7 +130,7 @@ class CustomerController extends Controller
     public function show(string $id)
     {
         $customer = Customer::findOrFail($id);
-        
+
         return response()->json([
             'success' => true,
             'data' => $customer
@@ -136,7 +143,7 @@ class CustomerController extends Controller
     public function edit(string $id)
     {
         $customer = Customer::findOrFail($id);
-        
+
         // Return view for editing customer
         return view('customers.edit', compact('customer'));
     }

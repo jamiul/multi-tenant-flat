@@ -100,8 +100,8 @@ class CustomerSeeder extends Seeder
                 'status' => $data[11],
                 'customer_type' => $data[12],
                 'registration_date' => $data[13],
-                'created_at' => $data[14],
-                'updated_at' => $data[15],
+                'created_at' => now(),
+                'updated_at' => now(),
             ];
             
             if (count($records) >= $chunkSize) {
