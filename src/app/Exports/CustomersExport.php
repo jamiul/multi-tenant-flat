@@ -3,15 +3,17 @@
 namespace App\Exports;
 
 use App\Models\Customer;
-use Maatwebsite\Excel\Concerns\FromQuery;
-use Maatwebsite\Excel\Concerns\WithHeadings;
-use Maatwebsite\Excel\Concerns\WithMapping;
-use Maatwebsite\Excel\Concerns\WithChunkReading;
-use Maatwebsite\Excel\Concerns\WithEvents;
-use Maatwebsite\Excel\Concerns\Exportable;
+use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Events\AfterSheet;
+use Maatwebsite\Excel\Concerns\FromQuery;
+use Maatwebsite\Excel\Concerns\Exportable;
+use Maatwebsite\Excel\Concerns\WithEvents;
+use Maatwebsite\Excel\Concerns\WithMapping;
+use Maatwebsite\Excel\Concerns\WithHeadings;
+use Maatwebsite\Excel\Concerns\WithChunkReading;
+use Maatwebsite\Excel\Concerns\WithStrictNullComparison; // Added for strict null comparison
 
-class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunkReading, WithEvents
+class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunkReading, WithEvents, WithStrictNullComparison
 {
     use Exportable;
 
@@ -24,10 +26,22 @@ class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunk
 
     public function query()
     {
-        return Customer::query()->select([
-            'id', 'first_name', 'last_name', 'email', 'phone', 'address',
-            'city', 'state', 'zip_code', 'country', 'date_of_birth',
-            'gender', 'status', 'customer_type', 'registration_date',
+           return Customer::query()->select([
+            'id',
+            'first_name',
+            'last_name',
+            'email',
+            'phone',
+            'address',
+            'city',
+            'state',
+            'zip_code',
+            'country',
+            DB::raw("DATE_FORMAT(date_of_birth, '%Y-%m-%d') as formatted_date_of_birth"), // MySQL date format
+            'gender',
+            'status',
+            'customer_type',
+            DB::raw("DATE_FORMAT(registration_date, '%Y-%m-%d %H:%i:%s') as formatted_registration_date"), // MySQL datetime format
         ]);
     }
 
@@ -53,11 +67,11 @@ class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunk
             $customer->state,
             $customer->zip_code,
             $customer->country,
-            optional($customer->date_of_birth)->format('Y-m-d'),
+            $customer->formatted_date_of_birth,
             ucfirst($customer->gender ?? 'N/A'),
             $customer->status ? 'Active' : 'Inactive',
             $this->getCustomerTypeName($customer->customer_type),
-            optional($customer->registration_date)->format('Y-m-d H:i:s'),
+            $customer->formatted_registration_date,
         ];
     }
 
@@ -73,7 +87,7 @@ class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunk
 
     public function chunkSize(): int
     {
-        return 1000;
+        return 5000;
     }
 
     // This is required for WithEvents
@@ -88,8 +102,8 @@ class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunk
     }
 
     // Force storage path
-    public function store($disk = null, $writerType = null)
-    {
-        return $this->exportable->store($this->fileName, 'public');
-    }
+    // public function store($disk = null, $writerType = null)
+    // {
+    //     return $this->exportable->store($this->fileName, 'public');
+    // }
 }

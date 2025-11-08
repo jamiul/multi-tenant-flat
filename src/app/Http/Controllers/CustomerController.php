@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Exports\CustomersExport;
+use Throwable;
 use App\Models\Customer;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Validator;
-use Maatwebsite\Excel\Facades\Excel;
+use App\Exports\CustomersExport;
 use Illuminate\Support\Facades\Bus;
-use Throwable;
+use Illuminate\Support\Facades\Log;
+use App\Jobs\ExportCustomersToExcel;
+use Maatwebsite\Excel\Facades\Excel;
+use App\Jobs\NotifyUserOfCompletedExport;
+use Illuminate\Support\Facades\Validator;
 
 class CustomerController extends Controller
 {
@@ -34,25 +37,46 @@ class CustomerController extends Controller
         return view('customers.index', compact('customers'));
     }
 
- public function export()
-{
-    $user = auth()->user();
-    $fileName = "exports/customers_{$user->id}_" . now()->timestamp . '.xlsx';
+      public function export()
+    {
+        $user = auth()->user();
+        $fileName = "exports/customers_{$user->id}_" . now()->timestamp . '.xlsx';
 
-    Excel::queue(
-        new \App\Exports\CustomersExport($fileName), // 1. Export object
-        $fileName,                                    // 2. File path (required)
-        'public'                                      // 3. Disk (optional, but recommended)
-    )->chain([
-        new \App\Jobs\NotifyUserOfCompletedExport($user, $fileName),
-    ]);
+        // Chain the export and notification jobs within a batch
+        $batch = Bus::batch([
+            // Dispatch our new dedicated export job here
+            new ExportCustomersToExcel($fileName),
+        ])->then(function ($batch) use ($user, $fileName) {
+            // All jobs completed successfully...
+             Bus::dispatch(new NotifyUserOfCompletedExport($user, $fileName));
+        })->catch(function ($batch, $exception) {
+            // A job failed within the batch...
+            Log::error("Customer export batch failed: " . $exception->getMessage(), ['batch_id' => $batch->id]);
+            // You might want to notify the user of a failure here
+            // e.g., $user->notify(new ExportFailed($fileName));
+        })->finally(function ($batch) {
+            // The batch has finished executing.
+            // Any final cleanup or logging can go here.
+        })->dispatch();
 
-    return back()->with('success', 'Export has been started and you will be notified upon completion.');
-}
+        session(['export_batch_id' => $batch->id]);
+        session(['export_file_name' => $fileName]);
+
+        return back()->with('success', 'Export has been started and you will be notified upon completion.');
+    }
 
     public function exportStatus($batchId)
     {
         $batch = Bus::findBatch($batchId);
+
+        if (!$batch) {
+            return response()->json([
+                'finished' => true, // Treat as finished if batch not found
+                'failed'   => true, // And indicate failure
+                'progress' => 100,
+                'message'  => 'Export batch not found.',
+            ], 404);
+        }
 
         return response()->json([
             'finished' => $batch->finished(),
@@ -63,16 +87,25 @@ class CustomerController extends Controller
 
     public function downloadExport()
     {
-        $fileName = session('export_file_name'); // Fixed: removed garbage
+        $fileName = session('export_file_name');
 
         if (!$fileName || ! \Illuminate\Support\Facades\Storage::disk('public')->exists($fileName)) {
+            // Check if the batch failed or if the file simply doesn't exist yet (still processing)
+            $batchId = session('export_batch_id');
+            if ($batchId) {
+                $batch = Bus::findBatch($batchId);
+                if ($batch && !$batch->finished()) {
+                    return redirect()
+                        ->route('customers.index')
+                        ->with('error', 'Export is still in progress. Please wait for completion notification.');
+                }
+            }
             return redirect()
                 ->route('customers.index')
-                ->with('error', 'File not found or export not finished.');
+                ->with('error', 'File not found or export failed.');
         }
 
-        // Optional: clean session
-        session()->forget(['export_file_name']);
+        session()->forget(['export_file_name', 'export_batch_id']); // Clear after download
 
         return \Illuminate\Support\Facades\Storage::disk('public')->download($fileName);
     }

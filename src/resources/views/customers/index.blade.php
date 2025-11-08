@@ -51,12 +51,18 @@
                                 statusDiv.classList.remove('bg-blue-100', 'text-blue-700', 'dark:bg-blue-900', 'dark:text-blue-200');
                                 if (data.failed) {
                                     statusDiv.classList.add('bg-red-100', 'text-red-700', 'dark:bg-red-900', 'dark:text-red-200');
-                                    statusDiv.innerHTML = 'Export failed. Please try again.';
+                                    statusDiv.innerHTML = 'Export failed. Please try again or check logs.'; // More informative
                                 } else {
                                     statusDiv.classList.add('bg-green-100', 'text-green-700', 'dark:bg-green-900', 'dark:text-green-200');
                                     statusDiv.innerHTML = `Export complete! <a href="{{ route('customers.export.download') }}" class="font-bold underline">Download</a>`;
                                 }
                             }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching export status:', error);
+                            clearInterval(interval);
+                            statusDiv.classList.add('bg-red-100', 'text-red-700', 'dark:bg-red-900', 'dark:text-red-200');
+                            statusDiv.innerHTML = 'Error checking export status. Please refresh.';
                         });
                 }, 2000);
             });
