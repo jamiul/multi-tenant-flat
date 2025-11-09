@@ -4,10 +4,10 @@ namespace App\Http\Controllers;
 
 use App\Jobs\ExportCustomersJob;
 use App\Jobs\MarkExportCompletedJob;
+use App\Jobs\MergeExportFilesJob;
 use App\Models\Customer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
-use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -41,76 +41,105 @@ class CustomerController extends Controller
     public function export()
     {
         $user = auth()->user();
-        $exportId = uniqid('export_', true);
-        $fileName = "customers_{$user->id}_" . now()->timestamp . '.xlsx';
-        $filePath = "exports/{$fileName}";
+        $timestamp = now()->timestamp;
+        $tempDir = "exports/temp_{$timestamp}";
+        $finalFileName = "customers_{$user->id}_{$timestamp}.xlsx";
+        $finalFilePath = "exports/{$finalFileName}";
 
         try {
-            // Initialize cache entry
-            Cache::put("export_{$exportId}", [
+            $totalCustomers = Customer::count();
+            $chunkSize = 1000;
+            $jobs = [];
+
+            // Create jobs for each chunk with separate file paths
+            for ($offset = 0; $offset < $totalCustomers; $offset += $chunkSize) {
+                $chunkIndex = $offset / $chunkSize;
+                $chunkFilePath = "{$tempDir}/chunk_{$chunkIndex}.xlsx";
+                $jobs[] = new ExportCustomersJob($chunkFilePath, $offset, $chunkSize);
+            }
+
+            // Dispatch batch
+            $batch = Bus::batch($jobs)
+                ->then(function () use ($tempDir, $finalFilePath, $user, $timestamp) {
+                    // Dispatch job to merge all chunks
+                    dispatch(new MergeExportFilesJob($tempDir, $finalFilePath, $user->id, $timestamp))->delay(now()->addSeconds(5));
+                })
+                ->catch(function (Throwable $e) use ($timestamp) {
+                    Log::error("Export failed", [
+                        'timestamp' => $timestamp,
+                        'error' => $e->getMessage()
+                    ]);
+                    
+                    Cache::put("export_{$timestamp}", [
+                        'status' => 'failed',
+                        'error_message' => $e->getMessage(),
+                    ], now()->addHours(24));
+                })
+                ->name("Customer Export - User {$user->id}")
+                ->dispatch();
+
+            // Store batch info in cache using timestamp as key
+            Cache::put("export_{$timestamp}", [
+                'batch_id' => $batch->id,
                 'user_id' => $user->id,
-                'file_path' => $filePath,
+                'file_path' => $finalFilePath,
+                'file_name' => $finalFileName,
                 'status' => 'processing',
                 'progress' => 0,
                 'started_at' => now()->toDateTimeString(),
             ], now()->addHours(24));
 
-            // Dispatch batch export job
-            $totalCustomers = Customer::count();
-            $chunkSize = 1000;
-            $jobs = [];
-
-            for ($offset = 0; $offset < $totalCustomers; $offset += $chunkSize) {
-                $jobs[] = new ExportCustomersJob($filePath, $offset, $chunkSize);
-            }
-
-            $batch = Bus::batch($jobs)->then(function () use ($exportId, $filePath, $user) {
-                // This will be handled in MarkExportCompletedJob
-                new MarkExportCompletedJob($exportId, $filePath, $user->id);
-            })->catch(function (Throwable $e) use ($exportId) {
-                Log::error("Export failed", [
-                    'export_id' => $exportId,
-                    'error' => $e->getMessage()
-                ]);
-                Cache::put("export_{$exportId}", [
-                    'status' => 'failed',
-                    'error_message' => $e->getMessage(),
-                ], now()->addHours(24));
-            })->dispatch();
-            // \Maatwebsite\Excel\Facades\Excel::queue(
-            //     new \App\Exports\CustomersExport,
-            //     $filePath,
-            //     'public'
-            // )->chain([
-            //     new \App\Jobs\MarkExportCompletedJob($exportId, $filePath, $user->id)
-            // ]);
-
             return redirect()->route('customers.index')
                 ->with('success', 'Export started successfully.')
-                ->with('export_id', $exportId);
+                ->with('export_id', $timestamp); // Use timestamp as export ID
         } catch (\Throwable $e) {
-            \Log::error('Export failed', ['error' => $e->getMessage()]);
+            Log::error('Export failed', ['error' => $e->getMessage()]);
             return back()->with('error', 'Export failed: ' . $e->getMessage());
         }
     }
-
 
     /**
      * Check export status
      */
     public function exportStatus($exportId)
     {
-        $batch = Bus::findBatch($exportId);
+        $exportData = Cache::get("export_{$exportId}");
+
+        if (!$exportData) {
+            return response()->json(['status' => 'not_found'], 404);
+        }
+
+        // If status is already completed or failed, return cached status
+        if (in_array($exportData['status'], ['completed', 'failed'])) {
+            return response()->json([
+                'status' => $exportData['status'],
+                'progress' => $exportData['progress'] ?? 100,
+                'finished' => true,
+                'failed' => $exportData['status'] === 'failed',
+                'error_message' => $exportData['error_message'] ?? null,
+            ]);
+        }
+
+        // Check batch progress
+        $batch = Bus::findBatch($exportData['batch_id']);
 
         if (!$batch) {
             return response()->json(['status' => 'not_found'], 404);
         }
 
+        $progress = $batch->progress();
+        $isFinished = $batch->finished();
+        $hasFailed = $batch->hasFailures();
+
+        // Update cache with current progress
+        $exportData['progress'] = $progress;
+        Cache::put("export_{$exportId}", $exportData, now()->addHours(24));
+
         return response()->json([
-            'status' => $batch->finished() ? 'completed' : 'processing',
-            'progress' => $batch->progress(),
-            'finished' => $batch->finished(),
-            'failed' => $batch->hasFailures(),
+            'status' => $isFinished ? ($hasFailed ? 'failed' : 'processing') : 'processing',
+            'progress' => $progress,
+            'finished' => $isFinished,
+            'failed' => $hasFailed,
         ]);
     }
 
@@ -159,13 +188,13 @@ class CustomerController extends Controller
                 ->with('error', 'Unauthorized access to this export.');
         }
 
-        $fileName = $exportData['file_name'];
+        $filePath = $exportData['file_path'];
 
-        if (!Storage::disk('public')->exists($fileName)) {
+        if (!Storage::disk('public')->exists($filePath)) {
             Log::error('Export file not found on disk', [
                 'export_id' => $exportId,
-                'file_name' => $fileName,
-                'full_path' => Storage::disk('public')->path($fileName)
+                'file_path' => $filePath,
+                'full_path' => Storage::disk('public')->path($filePath)
             ]);
             return redirect()
                 ->route('customers.index')
@@ -175,19 +204,17 @@ class CustomerController extends Controller
         Log::info('Export downloaded', [
             'export_id' => $exportId,
             'user_id' => auth()->id(),
-            'file_name' => $fileName
+            'file_path' => $filePath
         ]);
 
-        // Clean up cache after successful download
-        Cache::forget("export_{$exportId}");
-
-        // Optional: Clean up the user's latest export reference
-        if (Cache::get("user_" . auth()->id() . "_latest_export") === $exportId) {
-            Cache::forget("user_" . auth()->id() . "_latest_export");
-        }
+        // Don't clean up cache immediately - let it expire naturally
+        // This allows users to download multiple times
 
         // Download the file
-        return Storage::disk('public')->download($fileName, 'customers_export_' . now()->format('Y-m-d_His') . '.xlsx');
+        return Storage::disk('public')->download(
+            $filePath, 
+            'customers_export_' . now()->format('Y-m-d_His') . '.xlsx'
+        );
     }
 
     /**

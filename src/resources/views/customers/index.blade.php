@@ -32,11 +32,21 @@
     @if (session('export_id'))
     <div id="export-status" class="mb-4 rounded-lg bg-blue-100 px-6 py-5 text-base text-blue-700 dark:bg-blue-900 dark:text-blue-200" role="alert">
         <div class="flex items-center justify-between">
-            <span>Exporting... <span id="export-progress">0</span>%</span>
-            <svg class="animate-spin h-5 w-5 text-blue-700 dark:text-blue-200" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
+            <div class="flex items-center space-x-3">
+                <svg class="animate-spin h-5 w-5 text-blue-700 dark:text-blue-200" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <div>
+                    <span class="font-semibold">Exporting customers...</span>
+                    <div class="mt-1">
+                        <div class="w-64 bg-blue-200 dark:bg-blue-800 rounded-full h-2.5">
+                            <div id="progress-bar" class="bg-blue-600 dark:bg-blue-400 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <span id="export-progress" class="text-sm mt-1 inline-block">0%</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -45,9 +55,10 @@
             const exportId = '{{ session('export_id') }}';
             const statusDiv = document.getElementById('export-status');
             const progressSpan = document.getElementById('export-progress');
+            const progressBar = document.getElementById('progress-bar');
             
             let pollCount = 0;
-            const maxPolls = 150; // Stop after 5 minutes (150 * 2s = 300s)
+            const maxPolls = 300; // Stop after 10 minutes (300 * 2s = 600s)
 
             const interval = setInterval(function () {
                 pollCount++;
@@ -71,11 +82,13 @@
                         
                         // Update progress
                         if (data.progress !== undefined) {
-                            progressSpan.textContent = Math.round(data.progress);
+                            const progressValue = Math.round(data.progress);
+                            progressSpan.textContent = progressValue + '%';
+                            progressBar.style.width = progressValue + '%';
                         }
 
                         // Check if export is finished (completed or failed)
-                        if (data.status === 'completed' || data.finished === true) {
+                        if (data.status === 'completed') {
                             clearInterval(interval);
                             updateStatusUI('success', 'Export complete!', exportId);
                         } else if (data.status === 'failed' || data.failed === true) {
@@ -103,7 +116,12 @@
                     statusDiv.classList.add('bg-green-100', 'text-green-700', 'dark:bg-green-900', 'dark:text-green-200');
                     statusDiv.innerHTML = `
                         <div class="flex items-center justify-between">
-                            <span>${message}</span>
+                            <div class="flex items-center space-x-3">
+                                <svg class="h-6 w-6 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <span class="font-semibold">${message}</span>
+                            </div>
                             <a href="{{ route('customers.export.download') }}?export_id=${exportId}" 
                                class="ml-4 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded inline-flex items-center transition duration-150">
                                 <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -115,7 +133,14 @@
                     `;
                 } else if (type === 'error') {
                     statusDiv.classList.add('bg-red-100', 'text-red-700', 'dark:bg-red-900', 'dark:text-red-200');
-                    statusDiv.innerHTML = message;
+                    statusDiv.innerHTML = `
+                        <div class="flex items-center space-x-3">
+                            <svg class="h-6 w-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span class="font-semibold">${message}</span>
+                        </div>
+                    `;
                 }
             }
         });
