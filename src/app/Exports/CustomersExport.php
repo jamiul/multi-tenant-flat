@@ -4,22 +4,18 @@ namespace App\Exports;
 
 use App\Models\Customer;
 use Maatwebsite\Excel\Concerns\FromQuery;
-use Maatwebsite\Excel\Concerns\WithHeadings;
 use Maatwebsite\Excel\Concerns\WithMapping;
-use Maatwebsite\Excel\Concerns\WithChunkReading;
-use Maatwebsite\Excel\Concerns\WithEvents;
-use Maatwebsite\Excel\Concerns\Exportable;
-use Maatwebsite\Excel\Events\AfterSheet;
+use Maatwebsite\Excel\Concerns\WithHeadings;
 
-class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunkReading, WithEvents
+class CustomersExport implements FromQuery, WithHeadings, WithMapping
 {
-    use Exportable;
+    protected $offset;
+    protected $limit;
 
-    protected $fileName;
-
-    public function __construct(string $fileName)
+    public function __construct($offset, $limit)
     {
-        $this->fileName = $fileName;
+        $this->offset = $offset;
+        $this->limit = $limit;
     }
 
     public function query()
@@ -35,33 +31,7 @@ class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunk
             'state',
             'zip_code',
             'country',
-            // 'date_of_birth',
-            // 'gender',
-            // 'status',
-            // 'customer_type',
-            // 'registration_date',
-        ]); // Limit to 100,000 records for export
-    }
-
-    public function headings(): array
-    {
-        return [
-            'ID',
-            'First Name',
-            'Last Name',
-            'Email',
-            'Phone',
-            'Address',
-            'City',
-            'State',
-            'Zip Code',
-            'Country',
-            // 'Date of Birth',
-            // 'Gender',
-            // 'Status',
-            // 'Customer Type',
-            // 'Registration Date',
-        ];
+        ])->offset($this->offset)->limit($this->limit);
     }
 
     public function map($customer): array
@@ -77,43 +47,23 @@ class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunk
             $customer->state,
             $customer->zip_code,
             $customer->country,
-            // optional($customer->date_of_birth)->format('Y-m-d'),
-            // ucfirst($customer->gender ?? 'N/A'),
-            // $customer->status ? 'Active' : 'Inactive',
-            // $this->getCustomerTypeName($customer->customer_type),
-            // optional($customer->registration_date)->format('Y-m-d H:i:s'),
         ];
     }
 
-    protected function getCustomerTypeName(?int $type): string
-    {
-        return match ($type) {
-            1 => 'Regular',
-            2 => 'Premium',
-            3 => 'Enterprise',
-            default => 'Unknown',
-        };
-    }
-
-    public function chunkSize(): int
-    {
-        return 5000;
-    }
-
-    // This is required for WithEvents
-    public function registerEvents(): array
+    public function headings(): array
     {
         return [
-            // Optional: do something after the sheet is created
-            AfterSheet::class => function (AfterSheet $event) {
-                // You can style the sheet here if needed
-            },
+            'ID',
+            'First Name',
+            'Last Name',
+            'Email',
+            'Phone',
+            'Address',
+            'City',
+            'State',
+            'Zip Code',
+            'Country',
         ];
     }
 
-    // Force storage path
-    public function store($disk = null, $writerType = null)
-    {
-        return $this->exportable->store($this->fileName, 'public');
-    }
 }

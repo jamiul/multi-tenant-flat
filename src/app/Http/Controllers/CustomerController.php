@@ -2,7 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Exports\CustomersExport;
+use App\Jobs\ExportCustomersJob;
+use App\Jobs\MarkExportCompletedJob;
 use App\Models\Customer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -37,102 +38,79 @@ class CustomerController extends Controller
         return view('customers.index', compact('customers'));
     }
 
-    /**
-     * Start the export process
-     */
     public function export()
     {
         $user = auth()->user();
         $exportId = uniqid('export_', true);
-        $fileName = "exports/customers_{$user->id}_" . now()->timestamp . '.xlsx';
+        $fileName = "customers_{$user->id}_" . now()->timestamp . '.xlsx';
+        $filePath = "exports/{$fileName}";
 
-        // Test Redis connection before proceeding
         try {
-            Cache::put('test_redis_connection', 'test_value', 10);
-            $testValue = Cache::get('test_redis_connection');
-            
-            if ($testValue !== 'test_value') {
-                Log::error('Redis test failed - value mismatch');
-                return back()->with('error', 'Cache system error. Please contact administrator.');
+            // Initialize cache entry
+            Cache::put("export_{$exportId}", [
+                'user_id' => $user->id,
+                'file_path' => $filePath,
+                'status' => 'processing',
+                'progress' => 0,
+                'started_at' => now()->toDateTimeString(),
+            ], now()->addHours(24));
+
+            // Dispatch batch export job
+            $totalCustomers = Customer::count();
+            $chunkSize = 1000;
+            $jobs = [];
+
+            for ($offset = 0; $offset < $totalCustomers; $offset += $chunkSize) {
+                $jobs[] = new ExportCustomersJob($filePath, $offset, $chunkSize);
             }
-            
-            Cache::forget('test_redis_connection');
-        } catch (\Exception $e) {
-            Log::error('Redis connection test failed', ['error' => $e->getMessage()]);
-            return back()->with('error', 'Cache system unavailable. Please try again later.');
+
+            $batch = Bus::batch($jobs)->then(function () use ($exportId, $filePath, $user) {
+                // This will be handled in MarkExportCompletedJob
+                new MarkExportCompletedJob($exportId, $filePath, $user->id);
+            })->catch(function (Throwable $e) use ($exportId) {
+                Log::error("Export failed", [
+                    'export_id' => $exportId,
+                    'error' => $e->getMessage()
+                ]);
+                Cache::put("export_{$exportId}", [
+                    'status' => 'failed',
+                    'error_message' => $e->getMessage(),
+                ], now()->addHours(24));
+            })->dispatch();
+            // \Maatwebsite\Excel\Facades\Excel::queue(
+            //     new \App\Exports\CustomersExport,
+            //     $filePath,
+            //     'public'
+            // )->chain([
+            //     new \App\Jobs\MarkExportCompletedJob($exportId, $filePath, $user->id)
+            // ]);
+
+            return redirect()->route('customers.index')
+                ->with('success', 'Export started successfully.')
+                ->with('export_id', $exportId);
+        } catch (\Throwable $e) {
+            \Log::error('Export failed', ['error' => $e->getMessage()]);
+            return back()->with('error', 'Export failed: ' . $e->getMessage());
         }
-
-        // Store initial export metadata in cache for 24 hours
-        $initialData = [
-            'user_id' => $user->id,
-            'file_name' => $fileName,
-            'status' => 'processing',
-            'progress' => 0,
-            'started_at' => now()->toDateTimeString(),
-        ];
-        
-        $saved = Cache::put("export_{$exportId}", $initialData, now()->addHours(24));
-        
-        if (!$saved) {
-            Log::error('Failed to save initial export data to cache', [
-                'export_id' => $exportId,
-                'user_id' => $user->id
-            ]);
-            return back()->with('error', 'Failed to initialize export. Please try again.');
-        }
-
-        // Store latest export ID for this user (helps with recovery)
-        Cache::put("user_{$user->id}_latest_export", $exportId, now()->addHours(24));
-
-        Log::info("Export initiated", [
-            'export_id' => $exportId,
-            'user_id' => $user->id,
-            'file_name' => $fileName,
-            'cache_saved' => $saved
-        ]);
-
-        // Dispatch the export job
-        \App\Jobs\ExportCustomersJob::dispatch($user, $fileName, $exportId);
-
-        // Redirect to customers page with export_id in URL (most reliable method)
-        return redirect()->route('customers.index', ['export_id' => $exportId])
-            ->with('success', 'Export has been started. Please wait while we process your request.');
     }
+
 
     /**
      * Check export status
      */
     public function exportStatus($exportId)
     {
-        $exportData = Cache::get("export_{$exportId}");
+        $batch = Bus::findBatch($exportId);
 
-        Log::info("Export status checked", [
-            'export_id' => $exportId,
-            'data_exists' => !is_null($exportData),
-            'status' => $exportData['status'] ?? 'unknown'
-        ]);
-
-        if (!$exportData) {
-            return response()->json([
-                'error' => 'Export not found',
-                'status' => 'not_found',
-                'message' => 'Export session not found. It may have expired.'
-            ], 404);
+        if (!$batch) {
+            return response()->json(['status' => 'not_found'], 404);
         }
 
-        $isCompleted = isset($exportData['status']) && $exportData['status'] === 'completed';
-        $isFailed = isset($exportData['status']) && $exportData['status'] === 'failed';
-
         return response()->json([
-            'status' => $exportData['status'] ?? 'unknown',
-            'progress' => $exportData['progress'] ?? 0,
-            'finished' => $isCompleted,
-            'failed' => $isFailed,
-            'file_name' => $exportData['file_name'] ?? null,
-            'error_message' => $exportData['error_message'] ?? null,
-            'export_id' => $exportId,
-            'started_at' => $exportData['started_at'] ?? null,
-            'completed_at' => $exportData['completed_at'] ?? null,
+            'status' => $batch->finished() ? 'completed' : 'processing',
+            'progress' => $batch->progress(),
+            'finished' => $batch->finished(),
+            'failed' => $batch->hasFailures(),
         ]);
     }
 
@@ -202,7 +180,7 @@ class CustomerController extends Controller
 
         // Clean up cache after successful download
         Cache::forget("export_{$exportId}");
-        
+
         // Optional: Clean up the user's latest export reference
         if (Cache::get("user_" . auth()->id() . "_latest_export") === $exportId) {
             Cache::forget("user_" . auth()->id() . "_latest_export");
