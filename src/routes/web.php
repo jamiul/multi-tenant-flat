@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\Settings;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\CustomerController;
@@ -17,8 +16,6 @@ Route::get('customers', [CustomerController::class, 'index'])
     ->middleware(['auth', 'verified'])
     ->name('customers.index');
 
-<<<<<<< HEAD
-=======
 Route::get('customers/export', [CustomerController::class, 'export'])
     ->middleware(['auth', 'verified'])
     ->name('customers.export');
@@ -31,7 +28,6 @@ Route::get('customers/export/download', [CustomerController::class, 'downloadExp
     ->middleware(['auth', 'verified'])
     ->name('customers.export.download');
 
->>>>>>> d59c4406cc85b0a047a59e18285b15e6b612205d
 Route::middleware(['auth'])->group(function () {
     Route::get('settings/profile', [Settings\ProfileController::class, 'edit'])->name('settings.profile.edit');
     Route::put('settings/profile', [Settings\ProfileController::class, 'update'])->name('settings.profile.update');

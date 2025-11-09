@@ -83,7 +83,7 @@ class Customer extends Model
         return match($this->customer_type) {
             1 => 'Regular',
             2 => 'Premium',
-            3 => 'VIP',
+            3 => 'Enterprise',
             default => 'Unknown',
         };
     }

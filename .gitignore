@@ -3,3 +3,4 @@ docker/rabbitmq/
 docker/php/conf
 docker/php/logs
 docker/redis_data
+/docs
