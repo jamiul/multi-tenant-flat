@@ -29,45 +29,104 @@
         </div>
     @endif
 
-    @if (session('export_batch_id'))
-        <div id="export-status" class="mb-4 rounded-lg bg-blue-100 px-6 py-5 text-base text-blue-700 dark:bg-blue-900 dark:text-blue-200" role="alert">
-            Exporting... <span id="export-progress">0</span>%
+    @if (session('export_id'))
+    <div id="export-status" class="mb-4 rounded-lg bg-blue-100 px-6 py-5 text-base text-blue-700 dark:bg-blue-900 dark:text-blue-200" role="alert">
+        <div class="flex items-center justify-between">
+            <span>Exporting... <span id="export-progress">0</span>%</span>
+            <svg class="animate-spin h-5 w-5 text-blue-700 dark:text-blue-200" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
         </div>
+    </div>
 
-        <script>
-            document.addEventListener('DOMContentLoaded', function () {
-                const batchId = '{{ session('export_batch_id') }}';
-                const statusDiv = document.getElementById('export-status');
-                const progressSpan = document.getElementById('export-progress');
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const exportId = '{{ session('export_id') }}';
+            const statusDiv = document.getElementById('export-status');
+            const progressSpan = document.getElementById('export-progress');
+            
+            let pollCount = 0;
+            const maxPolls = 150; // Stop after 5 minutes (150 * 2s = 300s)
 
-                const interval = setInterval(function () {
-                    fetch(`/customers/export/status/${batchId}`)
-                        .then(response => response.json())
-                        .then(data => {
-                            progressSpan.textContent = data.progress;
+            const interval = setInterval(function () {
+                pollCount++;
+                
+                // Safety check to prevent infinite polling
+                if (pollCount > maxPolls) {
+                    clearInterval(interval);
+                    updateStatusUI('error', 'Export is taking longer than expected. Please refresh the page to check status.');
+                    return;
+                }
 
-                            if (data.finished) {
-                                clearInterval(interval);
-                                statusDiv.classList.remove('bg-blue-100', 'text-blue-700', 'dark:bg-blue-900', 'dark:text-blue-200');
-                                if (data.failed) {
-                                    statusDiv.classList.add('bg-red-100', 'text-red-700', 'dark:bg-red-900', 'dark:text-red-200');
-                                    statusDiv.innerHTML = 'Export failed. Please try again.';
-                                } else {
-                                    statusDiv.classList.add('bg-green-100', 'text-green-700', 'dark:bg-green-900', 'dark:text-green-200');
-                                    statusDiv.innerHTML = `Export complete! <a href="{{ route('customers.export.download') }}" class="font-bold underline">Download</a>`;
-                                }
-                            }
-                        });
-                }, 2000);
-            });
-        </script>
-    @endif
+                fetch(`/customers/export/status/${exportId}`)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Failed to check export status');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Export status:', data); // Debug log
+                        
+                        // Update progress
+                        if (data.progress !== undefined) {
+                            progressSpan.textContent = Math.round(data.progress);
+                        }
+
+                        // Check if export is finished (completed or failed)
+                        if (data.status === 'completed' || data.finished === true) {
+                            clearInterval(interval);
+                            updateStatusUI('success', 'Export complete!', exportId);
+                        } else if (data.status === 'failed' || data.failed === true) {
+                            clearInterval(interval);
+                            const errorMsg = data.error_message || 'Unknown error occurred. Please try again.';
+                            updateStatusUI('error', `Export failed: ${errorMsg}`);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error checking export status:', error);
+                        clearInterval(interval);
+                        updateStatusUI('error', 'Failed to check export status. Please refresh the page.');
+                    });
+            }, 2000); // Poll every 2 seconds
+
+            function updateStatusUI(type, message, exportId = null) {
+                // Remove all color classes
+                statusDiv.classList.remove(
+                    'bg-blue-100', 'text-blue-700', 'dark:bg-blue-900', 'dark:text-blue-200',
+                    'bg-green-100', 'text-green-700', 'dark:bg-green-900', 'dark:text-green-200',
+                    'bg-red-100', 'text-red-700', 'dark:bg-red-900', 'dark:text-red-200'
+                );
+
+                if (type === 'success') {
+                    statusDiv.classList.add('bg-green-100', 'text-green-700', 'dark:bg-green-900', 'dark:text-green-200');
+                    statusDiv.innerHTML = `
+                        <div class="flex items-center justify-between">
+                            <span>${message}</span>
+                            <a href="{{ route('customers.export.download') }}?export_id=${exportId}" 
+                               class="ml-4 bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded inline-flex items-center transition duration-150">
+                                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                </svg>
+                                Download Excel
+                            </a>
+                        </div>
+                    `;
+                } else if (type === 'error') {
+                    statusDiv.classList.add('bg-red-100', 'text-red-700', 'dark:bg-red-900', 'dark:text-red-200');
+                    statusDiv.innerHTML = message;
+                }
+            }
+        });
+    </script>
+@endif
 
     <!-- Search and Export -->
     <div class="mb-4 flex items-center justify-between">
         <form action="{{ route('customers.index') }}" method="GET" class="w-full max-w-md">
             <div class="flex items-center border-b-2 border-blue-500 py-2">
-                <input class="appearance-none bg-transparent border-none w-full text-gray-700 mr-3 py-1 px-2 leading-tight focus:outline-none" type="text" name="search" placeholder="Search customers..." value="{{ request('search') }}">
+                <input class="appearance-none bg-transparent border-none w-full text-gray-700 dark:text-gray-300 mr-3 py-1 px-2 leading-tight focus:outline-none" type="text" name="search" placeholder="Search customers..." value="{{ request('search') }}">
                 <button class="flex-shrink-0 bg-blue-500 hover:bg-blue-700 border-blue-500 hover:border-blue-700 text-sm border-4 text-white py-1 px-2 rounded" type="submit">
                     Search
                 </button>
@@ -86,12 +145,8 @@
 
                 exportButton.addEventListener('click', function (e) {
                     exportButton.classList.add('opacity-50', 'cursor-not-allowed');
-                    exportButtonText.textContent = 'Exporting...';
-
-                    setTimeout(() => {
-                        exportButton.classList.remove('opacity-50', 'cursor-not-allowed');
-                        exportButtonText.textContent = 'Export to Excel';
-                    }, 5000);
+                    exportButton.style.pointerEvents = 'none';
+                    exportButtonText.textContent = 'Processing...';
                 });
             });
         </script>
@@ -200,7 +255,6 @@
                                 <a href="#" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-4 py-2 rounded-lg transition duration-150 ease-in-out">
                                     {{ __('Add Customer') }}
                                 </a>
-                                
                             </div>
                         </td>
                     </tr>

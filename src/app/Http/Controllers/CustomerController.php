@@ -8,6 +8,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Maatwebsite\Excel\Facades\Excel;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 class CustomerController extends Controller
@@ -34,47 +37,179 @@ class CustomerController extends Controller
         return view('customers.index', compact('customers'));
     }
 
- public function export()
-{
-    $user = auth()->user();
-    $fileName = "exports/customers_{$user->id}_" . now()->timestamp . '.xlsx';
-
-    Excel::queue(
-        new \App\Exports\CustomersExport($fileName), // 1. Export object
-        $fileName,                                    // 2. File path (required)
-        'public'                                      // 3. Disk (optional, but recommended)
-    )->chain([
-        new \App\Jobs\NotifyUserOfCompletedExport($user, $fileName),
-    ]);
-
-    return back()->with('success', 'Export has been started and you will be notified upon completion.');
-}
-
-    public function exportStatus($batchId)
+    /**
+     * Start the export process
+     */
+    public function export()
     {
-        $batch = Bus::findBatch($batchId);
+        $user = auth()->user();
+        $exportId = uniqid('export_', true);
+        $fileName = "exports/customers_{$user->id}_" . now()->timestamp . '.xlsx';
+
+        // Test Redis connection before proceeding
+        try {
+            Cache::put('test_redis_connection', 'test_value', 10);
+            $testValue = Cache::get('test_redis_connection');
+            
+            if ($testValue !== 'test_value') {
+                Log::error('Redis test failed - value mismatch');
+                return back()->with('error', 'Cache system error. Please contact administrator.');
+            }
+            
+            Cache::forget('test_redis_connection');
+        } catch (\Exception $e) {
+            Log::error('Redis connection test failed', ['error' => $e->getMessage()]);
+            return back()->with('error', 'Cache system unavailable. Please try again later.');
+        }
+
+        // Store initial export metadata in cache for 24 hours
+        $initialData = [
+            'user_id' => $user->id,
+            'file_name' => $fileName,
+            'status' => 'processing',
+            'progress' => 0,
+            'started_at' => now()->toDateTimeString(),
+        ];
+        
+        $saved = Cache::put("export_{$exportId}", $initialData, now()->addHours(24));
+        
+        if (!$saved) {
+            Log::error('Failed to save initial export data to cache', [
+                'export_id' => $exportId,
+                'user_id' => $user->id
+            ]);
+            return back()->with('error', 'Failed to initialize export. Please try again.');
+        }
+
+        // Store latest export ID for this user (helps with recovery)
+        Cache::put("user_{$user->id}_latest_export", $exportId, now()->addHours(24));
+
+        Log::info("Export initiated", [
+            'export_id' => $exportId,
+            'user_id' => $user->id,
+            'file_name' => $fileName,
+            'cache_saved' => $saved
+        ]);
+
+        // Dispatch the export job
+        \App\Jobs\ExportCustomersJob::dispatch($user, $fileName, $exportId);
+
+        // Redirect to customers page with export_id in URL (most reliable method)
+        return redirect()->route('customers.index', ['export_id' => $exportId])
+            ->with('success', 'Export has been started. Please wait while we process your request.');
+    }
+
+    /**
+     * Check export status
+     */
+    public function exportStatus($exportId)
+    {
+        $exportData = Cache::get("export_{$exportId}");
+
+        Log::info("Export status checked", [
+            'export_id' => $exportId,
+            'data_exists' => !is_null($exportData),
+            'status' => $exportData['status'] ?? 'unknown'
+        ]);
+
+        if (!$exportData) {
+            return response()->json([
+                'error' => 'Export not found',
+                'status' => 'not_found',
+                'message' => 'Export session not found. It may have expired.'
+            ], 404);
+        }
+
+        $isCompleted = isset($exportData['status']) && $exportData['status'] === 'completed';
+        $isFailed = isset($exportData['status']) && $exportData['status'] === 'failed';
 
         return response()->json([
-            'finished' => $batch->finished(),
-            'failed'   => $batch->hasFailures(),
-            'progress' => $batch->progress(),
+            'status' => $exportData['status'] ?? 'unknown',
+            'progress' => $exportData['progress'] ?? 0,
+            'finished' => $isCompleted,
+            'failed' => $isFailed,
+            'file_name' => $exportData['file_name'] ?? null,
+            'error_message' => $exportData['error_message'] ?? null,
+            'export_id' => $exportId,
+            'started_at' => $exportData['started_at'] ?? null,
+            'completed_at' => $exportData['completed_at'] ?? null,
         ]);
     }
 
-    public function downloadExport()
+    /**
+     * Download the exported file
+     */
+    public function downloadExport(Request $request)
     {
-        $fileName = session('export_file_name'); // Fixed: removed garbage
+        $exportId = $request->get('export_id');
 
-        if (!$fileName || ! \Illuminate\Support\Facades\Storage::disk('public')->exists($fileName)) {
+        if (!$exportId) {
+            Log::warning('Download attempted without export_id');
             return redirect()
                 ->route('customers.index')
-                ->with('error', 'File not found or export not finished.');
+                ->with('error', 'Export ID is required.');
         }
 
-        // Optional: clean session
-        session()->forget(['export_file_name']);
+        $exportData = Cache::get("export_{$exportId}");
 
-        return \Illuminate\Support\Facades\Storage::disk('public')->download($fileName);
+        if (!$exportData) {
+            Log::warning('Download attempted for non-existent export', ['export_id' => $exportId]);
+            return redirect()
+                ->route('customers.index')
+                ->with('error', 'Export not found. It may have expired.');
+        }
+
+        if ($exportData['status'] !== 'completed') {
+            Log::warning('Download attempted for incomplete export', [
+                'export_id' => $exportId,
+                'status' => $exportData['status']
+            ]);
+            return redirect()
+                ->route('customers.index')
+                ->with('error', 'Export is not ready yet. Current status: ' . $exportData['status']);
+        }
+
+        // Verify user owns this export
+        if ($exportData['user_id'] !== auth()->id()) {
+            Log::warning('Unauthorized download attempt', [
+                'export_id' => $exportId,
+                'owner_id' => $exportData['user_id'],
+                'requester_id' => auth()->id()
+            ]);
+            return redirect()
+                ->route('customers.index')
+                ->with('error', 'Unauthorized access to this export.');
+        }
+
+        $fileName = $exportData['file_name'];
+
+        if (!Storage::disk('public')->exists($fileName)) {
+            Log::error('Export file not found on disk', [
+                'export_id' => $exportId,
+                'file_name' => $fileName,
+                'full_path' => Storage::disk('public')->path($fileName)
+            ]);
+            return redirect()
+                ->route('customers.index')
+                ->with('error', 'Export file not found on server.');
+        }
+
+        Log::info('Export downloaded', [
+            'export_id' => $exportId,
+            'user_id' => auth()->id(),
+            'file_name' => $fileName
+        ]);
+
+        // Clean up cache after successful download
+        Cache::forget("export_{$exportId}");
+        
+        // Optional: Clean up the user's latest export reference
+        if (Cache::get("user_" . auth()->id() . "_latest_export") === $exportId) {
+            Cache::forget("user_" . auth()->id() . "_latest_export");
+        }
+
+        // Download the file
+        return Storage::disk('public')->download($fileName, 'customers_export_' . now()->format('Y-m-d_His') . '.xlsx');
     }
 
     /**
@@ -82,7 +217,6 @@ class CustomerController extends Controller
      */
     public function create()
     {
-        // Return view for creating customer
         return view('customers.create');
     }
 
@@ -143,8 +277,6 @@ class CustomerController extends Controller
     public function edit(string $id)
     {
         $customer = Customer::findOrFail($id);
-
-        // Return view for editing customer
         return view('customers.edit', compact('customer'));
     }
 

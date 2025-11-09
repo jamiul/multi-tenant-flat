@@ -25,18 +25,42 @@ class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunk
     public function query()
     {
         return Customer::query()->select([
-            'id', 'first_name', 'last_name', 'email', 'phone', 'address',
-            'city', 'state', 'zip_code', 'country', 'date_of_birth',
-            'gender', 'status', 'customer_type', 'registration_date',
-        ]);
+            'id',
+            'first_name',
+            'last_name',
+            'email',
+            'phone',
+            'address',
+            'city',
+            'state',
+            'zip_code',
+            'country',
+            // 'date_of_birth',
+            // 'gender',
+            // 'status',
+            // 'customer_type',
+            // 'registration_date',
+        ]); // Limit to 100,000 records for export
     }
 
     public function headings(): array
     {
         return [
-            'ID', 'First Name', 'Last Name', 'Email', 'Phone', 'Address',
-            'City', 'State', 'Zip Code', 'Country', 'Date of Birth',
-            'Gender', 'Status', 'Customer Type', 'Registration Date',
+            'ID',
+            'First Name',
+            'Last Name',
+            'Email',
+            'Phone',
+            'Address',
+            'City',
+            'State',
+            'Zip Code',
+            'Country',
+            // 'Date of Birth',
+            // 'Gender',
+            // 'Status',
+            // 'Customer Type',
+            // 'Registration Date',
         ];
     }
 
@@ -53,11 +77,11 @@ class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunk
             $customer->state,
             $customer->zip_code,
             $customer->country,
-            optional($customer->date_of_birth)->format('Y-m-d'),
-            ucfirst($customer->gender ?? 'N/A'),
-            $customer->status ? 'Active' : 'Inactive',
-            $this->getCustomerTypeName($customer->customer_type),
-            optional($customer->registration_date)->format('Y-m-d H:i:s'),
+            // optional($customer->date_of_birth)->format('Y-m-d'),
+            // ucfirst($customer->gender ?? 'N/A'),
+            // $customer->status ? 'Active' : 'Inactive',
+            // $this->getCustomerTypeName($customer->customer_type),
+            // optional($customer->registration_date)->format('Y-m-d H:i:s'),
         ];
     }
 
@@ -73,7 +97,7 @@ class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunk
 
     public function chunkSize(): int
     {
-        return 1000;
+        return 5000;
     }
 
     // This is required for WithEvents
@@ -81,7 +105,7 @@ class CustomersExport implements FromQuery, WithHeadings, WithMapping, WithChunk
     {
         return [
             // Optional: do something after the sheet is created
-            AfterSheet::class => function(AfterSheet $event) {
+            AfterSheet::class => function (AfterSheet $event) {
                 // You can style the sheet here if needed
             },
         ];

@@ -20,7 +20,7 @@ Route::get('customers/export', [CustomerController::class, 'export'])
     ->middleware(['auth', 'verified'])
     ->name('customers.export');
 
-Route::get('customers/export/status/{batchId}', [CustomerController::class, 'exportStatus'])
+Route::get('customers/export/status/{exportId}', [CustomerController::class, 'exportStatus'])
     ->middleware(['auth', 'verified'])
     ->name('customers.export.status');
 
