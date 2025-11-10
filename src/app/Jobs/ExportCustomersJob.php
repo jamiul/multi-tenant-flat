@@ -2,7 +2,7 @@
 
 namespace App\Jobs;
 
-use App\Exports\CustomersExport;
+use App\Models\Customer;
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -10,7 +10,8 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
-use Maatwebsite\Excel\Facades\Excel;
+use Illuminate\Support\Facades\Storage;
+use Rap2hpoutre\FastExcel\FastExcel;
 
 class ExportCustomersJob implements ShouldQueue
 {
@@ -51,25 +52,68 @@ class ExportCustomersJob implements ShouldQueue
         }
 
         try {
-            Log::info("Exporting chunk", [
+            Log::info("Exporting chunk with FastExcel", [
                 'file_path' => $this->filePath,
                 'offset' => $this->offset,
                 'limit' => $this->limit
             ]);
 
-            Excel::store(
-                new CustomersExport($this->offset, $this->limit), 
-                $this->filePath, 
-                'public'
-            );
+            // Fetch customers for this chunk
+            $customers = Customer::query()
+                ->select([
+                    'id',
+                    'first_name',
+                    'last_name',
+                    'email',
+                    'phone',
+                    'address',
+                    'city',
+                    'state',
+                    'zip_code',
+                    'country',
+                ])
+                ->offset($this->offset)
+                ->limit($this->limit)
+                ->get();
 
-            Log::info("Chunk exported successfully", [
+            // Get the full storage path
+            $disk = Storage::disk('public');
+            $fullPath = $disk->path($this->filePath);
+
+            // Ensure directory exists
+            $directory = dirname($fullPath);
+            if (!is_dir($directory)) {
+                mkdir($directory, 0755, true);
+            }
+
+            // Export using FastExcel
+            // Map the data to arrays for export
+            $exportData = $customers->map(function ($customer) {
+                return [
+                    'ID' => $customer->id,
+                    'First Name' => $customer->first_name,
+                    'Last Name' => $customer->last_name,
+                    'Email' => $customer->email,
+                    'Phone' => $customer->phone,
+                    'Address' => $customer->address,
+                    'City' => $customer->city,
+                    'State' => $customer->state,
+                    'Zip Code' => $customer->zip_code,
+                    'Country' => $customer->country,
+                ];
+            });
+
+            // Export to CSV using FastExcel
+            (new FastExcel($exportData))->export($fullPath);
+
+            Log::info("Chunk exported successfully with FastExcel", [
                 'file_path' => $this->filePath,
-                'offset' => $this->offset
+                'offset' => $this->offset,
+                'records_count' => $customers->count()
             ]);
 
         } catch (\Throwable $e) {
-            Log::error("Failed to export chunk", [
+            Log::error("Failed to export chunk with FastExcel", [
                 'file_path' => $this->filePath,
                 'offset' => $this->offset,
                 'error' => $e->getMessage(),

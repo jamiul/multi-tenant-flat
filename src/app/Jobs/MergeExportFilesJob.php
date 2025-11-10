@@ -10,10 +10,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
-use PhpOffice\PhpSpreadsheet\IOFactory;
-use PhpOffice\PhpSpreadsheet\Spreadsheet;
-use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
-use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use Rap2hpoutre\FastExcel\FastExcel;
 
 class MergeExportFilesJob implements ShouldQueue
 {
@@ -24,13 +21,13 @@ class MergeExportFilesJob implements ShouldQueue
     public $userId;
     public $exportId;
 
-    public $timeout = 3600; // 60 minutes - increased significantly
+    public $timeout = 3600; // 60 minutes
     public $tries = 3;
     public $maxExceptions = 3;
     public $backoff = 30;
 
     // Memory limit for the job
-    public $memory = '2048M'; // 2GB - adjust based on your server
+    public $memory = '2048M'; // 2GB
 
     public function __construct(string $tempDir, string $finalFilePath, int $userId, string $exportId)
     {
@@ -44,7 +41,7 @@ class MergeExportFilesJob implements ShouldQueue
     {
         $disk = Storage::disk('public');
 
-        Log::info("=== MERGE JOB STARTED ===", [
+        Log::info("=== MERGE JOB STARTED (FastExcel) ===", [
             'export_id' => $this->exportId,
             'temp_dir' => $this->tempDir,
             'final_path' => $this->finalFilePath,
@@ -62,7 +59,7 @@ class MergeExportFilesJob implements ShouldQueue
             throw new \Exception("Temp directory not found: {$this->tempDir}");
         }
 
-        // 1️⃣  Collect & sort chunk CSVs
+        // 1️⃣ Collect & sort chunk CSVs
         $chunkFiles = array_values(array_filter($disk->files($this->tempDir), fn($f) => str_ends_with($f, '.csv')));
 
         usort($chunkFiles, function ($a, $b) {
@@ -80,38 +77,17 @@ class MergeExportFilesJob implements ShouldQueue
             'chunk_count' => count($chunkFiles)
         ]);
 
-        // 2️⃣  Merge CSV chunks into one local temp CSV
-        $tmpCsv = sys_get_temp_dir() . "/merged_export_{$this->exportId}_" . uniqid() . ".csv";
-        $totalRows = $this->mergeChunks($disk, $chunkFiles, $tmpCsv);
-
-        if ($totalRows === 0) {
-            @unlink($tmpCsv);
-            throw new \Exception("No data was processed from chunks");
-        }
-
-        // 3️⃣  Convert merged CSV → XLSX with optimizations
+        // 2️⃣ Merge CSV chunks and convert to XLSX using FastExcel
         try {
-            $this->updateProgress(50, "Converting to Excel format...");
+            $this->updateProgress(10, "Starting merge process...");
             
-            $xlsxTmp = sys_get_temp_dir() . "/final_export_{$this->exportId}.xlsx";
-            $this->convertCsvToXlsxOptimized($tmpCsv, $xlsxTmp);
+            $totalRows = $this->mergeChunksToXlsx($disk, $chunkFiles);
 
-            // Upload final XLSX to Laravel storage
-            $this->updateProgress(90, "Uploading final file...");
-            
-            $xlsxStream = fopen($xlsxTmp, 'r');
-            if (!$xlsxStream) {
-                throw new \Exception("Failed to open XLSX file for upload");
+            if ($totalRows === 0) {
+                throw new \Exception("No data was processed from chunks");
             }
-            
-            $disk->put($this->finalFilePath, $xlsxStream);
-            fclose($xlsxStream);
 
-            // Remove temp files
-            @unlink($tmpCsv);
-            @unlink($xlsxTmp);
-
-            Log::info("Merged XLSX created successfully", [
+            Log::info("Merged XLSX created successfully with FastExcel", [
                 'export_id' => $this->exportId,
                 'final_path' => $this->finalFilePath,
                 'total_rows' => $totalRows
@@ -122,11 +98,10 @@ class MergeExportFilesJob implements ShouldQueue
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-            @unlink($tmpCsv);
             throw $e;
         }
 
-        // 4️⃣  Cleanup chunk files & mark as completed
+        // 3️⃣ Cleanup chunk files & mark as completed
         $this->cleanupTempFiles($disk, $chunkFiles);
         $this->markExportCompleted($totalRows);
 
@@ -137,121 +112,100 @@ class MergeExportFilesJob implements ShouldQueue
         ]);
     }
 
-    private function mergeChunks($disk, array $chunkFiles, string $tmpCsv): int
+    private function mergeChunksToXlsx($disk, array $chunkFiles): int
     {
-        $out = fopen($tmpCsv, 'w');
-        if (!$out) {
-            throw new \Exception("Failed to create temp file: {$tmpCsv}");
-        }
-
-        $isFirst = true;
-        $processedChunks = 0;
-        $totalRows = 0;
-
-        Log::info("Starting chunk merge", [
+        Log::info("Starting chunk merge with FastExcel", [
             'export_id' => $this->exportId,
             'total_chunks' => count($chunkFiles)
         ]);
 
+        $this->updateProgress(20, "Reading chunk files...");
+
+        $totalRows = 0;
+        $allData = [];
+
+        // Read all chunks and combine data
         foreach ($chunkFiles as $index => $chunkKey) {
-            $stream = $disk->readStream($chunkKey);
-            if (!$stream) {
-                Log::warning("Cannot read stream for chunk", ['chunk' => $chunkKey]);
-                continue;
-            }
-
-            $headerSkipped = false;
-            $chunkRows = 0;
-
-            while (!feof($stream)) {
-                $line = fgets($stream);
-                if ($line === false) break;
+            try {
+                $chunkPath = $disk->path($chunkKey);
                 
-                if (!$isFirst && !$headerSkipped) {
-                    // Skip header row for all chunks after first
-                    $headerSkipped = true;
+                if (!file_exists($chunkPath)) {
+                    Log::warning("Chunk file not found", ['chunk' => $chunkKey]);
                     continue;
                 }
+
+                // Read CSV chunk using FastExcel
+                $chunkData = (new FastExcel)->import($chunkPath);
                 
-                fwrite($out, $line);
-                $chunkRows++;
+                $chunkRows = $chunkData->count();
+                $totalRows += $chunkRows;
+
+                // Add to combined data array
+                foreach ($chunkData as $row) {
+                    $allData[] = $row;
+                }
+
+                // Update progress every few chunks
+                if (($index + 1) % 5 === 0) {
+                    $progress = 20 + (int)((($index + 1) / count($chunkFiles)) * 60); // 20-80% for reading
+                    $this->updateProgress($progress, "Processing chunks... (" . ($index + 1) . "/" . count($chunkFiles) . ")");
+                }
+
+                Log::info("Chunk read", [
+                    'export_id' => $this->exportId,
+                    'chunk' => $index + 1,
+                    'total' => count($chunkFiles),
+                    'rows' => $chunkRows
+                ]);
+
+            } catch (\Throwable $e) {
+                Log::error("Error reading chunk", [
+                    'export_id' => $this->exportId,
+                    'chunk' => $chunkKey,
+                    'error' => $e->getMessage()
+                ]);
+                throw $e;
             }
-
-            fclose($stream);
-            $totalRows += $chunkRows;
-            $isFirst = false;
-            $processedChunks++;
-
-            // Update progress every few chunks
-            if ($processedChunks % 5 === 0) {
-                $progress = (int)(($processedChunks / count($chunkFiles)) * 40); // 0-40% for merging
-                $this->updateProgress($progress, "Merging chunks... ({$processedChunks}/" . count($chunkFiles) . ")");
-            }
-
-            Log::info("Chunk merged", [
-                'export_id' => $this->exportId,
-                'chunk' => $index + 1,
-                'total' => count($chunkFiles),
-                'rows' => $chunkRows
-            ]);
         }
 
-        fclose($out);
+        $this->updateProgress(85, "Creating final Excel file...");
 
-        Log::info("CSV chunks merged successfully", [
+        // Export all data to XLSX using FastExcel
+        $finalPath = $disk->path($this->finalFilePath);
+        
+        // Ensure directory exists
+        $directory = dirname($finalPath);
+        if (!is_dir($directory)) {
+            mkdir($directory, 0755, true);
+        }
+
+        Log::info("Exporting to XLSX", [
             'export_id' => $this->exportId,
-            'merged_temp' => $tmpCsv,
-            'chunks' => $processedChunks,
-            'total_rows' => $totalRows
+            'total_rows' => $totalRows,
+            'final_path' => $finalPath
         ]);
 
-        return $totalRows;
-    }
+        // Use FastExcel to export to XLSX
+        // FastExcel automatically detects the format from file extension
+        (new FastExcel(collect($allData)))->export($finalPath);
 
-    private function convertCsvToXlsxOptimized(string $csvPath, string $xlsxPath): void
-    {
-        Log::info("Starting CSV to XLSX conversion", [
+        // Verify file was created
+        if (!file_exists($finalPath)) {
+            throw new \Exception("Failed to create final XLSX file");
+        }
+
+        Log::info("XLSX file created successfully", [
             'export_id' => $this->exportId,
-            'csv_path' => $csvPath,
-            'file_size' => round(filesize($csvPath) / 1024 / 1024, 2) . 'MB'
+            'file_size' => round(filesize($finalPath) / 1024 / 1024, 2) . 'MB'
         ]);
 
-        // Method 1: Use PhpSpreadsheet with optimizations
-        $reader = IOFactory::createReader('Csv');
-        $reader->setReadDataOnly(true);
-        $reader->setReadEmptyCells(false);
-        
-        // Configure CSV reader for better performance
-        $reader->setDelimiter(',');
-        $reader->setEnclosure('"');
-        $reader->setSheetIndex(0);
+        $this->updateProgress(95, "Finalizing...");
 
-        Log::info("Loading CSV file...", ['export_id' => $this->exportId]);
-        $spreadsheet = $reader->load($csvPath);
-        
-        Log::info("CSV loaded, creating XLSX writer...", ['export_id' => $this->exportId]);
-        
-        // Configure XLSX writer for performance
-        $writer = new Xlsx($spreadsheet);
-        $writer->setPreCalculateFormulas(false);
-        
-        // Optional: Disable auto-sizing for faster writing
-        // $writer->getDefaultStyle()->getAlignment()->setWrapText(false);
-        
-        Log::info("Saving XLSX file...", ['export_id' => $this->exportId]);
-        $writer->save($xlsxPath);
-
-        // Clean up spreadsheet object immediately
-        $spreadsheet->disconnectWorksheets();
-        unset($spreadsheet, $writer, $reader);
-        
         // Force garbage collection
+        unset($allData, $chunkData);
         gc_collect_cycles();
 
-        Log::info("XLSX conversion completed", [
-            'export_id' => $this->exportId,
-            'xlsx_size' => round(filesize($xlsxPath) / 1024 / 1024, 2) . 'MB'
-        ]);
+        return $totalRows;
     }
 
     private function updateProgress(int $progress, string $message = ''): void
