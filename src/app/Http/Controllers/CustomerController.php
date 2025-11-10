@@ -42,7 +42,7 @@ class CustomerController extends Controller
         $user = auth()->user();
         $timestamp = now()->timestamp;
         $tempDir = "exports/temp_{$timestamp}";
-        $finalFileName = "customers_{$user->id}_{$timestamp}.xlsx";
+        $finalFileName = "customers_{$user->id}_{$timestamp}.csv";
         $finalFilePath = "exports/{$finalFileName}";
 
         try {
@@ -62,7 +62,7 @@ class CustomerController extends Controller
             // Create jobs for each chunk
             for ($offset = 0; $offset < $totalCustomers; $offset += $chunkSize) {
                 $chunkIndex = $offset / $chunkSize;
-                $chunkFilePath = "{$tempDir}/chunk_{$chunkIndex}.xlsx";
+                $chunkFilePath = "{$tempDir}/chunk_{$chunkIndex}.csv";
                 $jobs[] = new ExportCustomersJob($chunkFilePath, $offset, $chunkSize);
 
                 Log::info("Chunk job created", [
@@ -304,8 +304,8 @@ class CustomerController extends Controller
 
         // Download the file
         return Storage::disk('public')->download(
-            $filePath,
-            'customers_export_' . now()->format('Y-m-d_His') . '.xlsx'
+            $filePath, 
+            'customers_export_' . now()->format('Y-m-d_His') . '.csv'
         );
     }
 
