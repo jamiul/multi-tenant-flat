@@ -42,7 +42,7 @@ class CustomerController extends Controller
         $user = auth()->user();
         $timestamp = now()->timestamp;
         $tempDir = "exports/temp_{$timestamp}";
-        $finalFileName = "customers_{$user->id}_{$timestamp}.csv";
+        $finalFileName = "customers_{$user->id}_{$timestamp}.xlsx";
         $finalFilePath = "exports/{$finalFileName}";
 
         try {
@@ -305,7 +305,7 @@ class CustomerController extends Controller
         // Download the file
         return Storage::disk('public')->download(
             $filePath, 
-            'customers_export_' . now()->format('Y-m-d_His') . '.csv'
+            'customers_export_' . now()->format('Y-m-d_His') . '.xlsx'
         );
     }
 
