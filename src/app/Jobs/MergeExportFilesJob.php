@@ -60,11 +60,11 @@ class MergeExportFilesJob implements ShouldQueue
         }
 
         // 1️⃣ Collect & sort chunk CSVs
-        $chunkFiles = array_values(array_filter($disk->files($this->tempDir), fn($f) => str_ends_with($f, '.csv')));
+        $chunkFiles = array_values(array_filter($disk->files($this->tempDir), fn($f) => str_ends_with($f, '.xlsx')));
 
         usort($chunkFiles, function ($a, $b) {
-            preg_match('/chunk_(\d+)\.csv$/', $a, $ma);
-            preg_match('/chunk_(\d+)\.csv$/', $b, $mb);
+            preg_match('/chunk_(\d+)\.xlsx$/', $a, $ma);
+            preg_match('/chunk_(\d+)\.xlsx$/', $b, $mb);
             return (int)($ma[1] ?? 0) <=> (int)($mb[1] ?? 0);
         });
 

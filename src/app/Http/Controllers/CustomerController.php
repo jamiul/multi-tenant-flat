@@ -62,7 +62,7 @@ class CustomerController extends Controller
             // Create jobs for each chunk
             for ($offset = 0; $offset < $totalCustomers; $offset += $chunkSize) {
                 $chunkIndex = $offset / $chunkSize;
-                $chunkFilePath = "{$tempDir}/chunk_{$chunkIndex}.csv";
+                $chunkFilePath = "{$tempDir}/chunk_{$chunkIndex}.xlsx";
                 $jobs[] = new ExportCustomersJob($chunkFilePath, $offset, $chunkSize);
 
                 Log::info("Chunk job created", [
